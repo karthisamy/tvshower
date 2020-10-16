@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">TvShow</string>
+    <string name="search_show">Search Show</string>
+    <string name="duration">DURATION : </string>
+    <string name="genres">GENRES : </string>
+    <string name="ratings">RATING : </string>
+    <string name="language">LANGUAGE : </string>
+    <string name="summary">SUMMARY</string>
+
+</resources>
