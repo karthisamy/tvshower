@@ -1,12 +1,10 @@
 package com.tvshow
 
-import android.annotation.SuppressLint
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.DialogInterface
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.os.AsyncTask
 import android.os.Build
 import android.os.Bundle
 import android.text.Editable
@@ -22,6 +20,9 @@ import android.widget.TextView
 import android.widget.TextView.*
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers
+import io.reactivex.rxjava3.core.Observable
+import io.reactivex.rxjava3.schedulers.Schedulers
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -101,21 +102,19 @@ class MainActivity : AppCompatActivity() {
 
             imageView?.visibility = View.VISIBLE
             if (showData?.imageUrl != null) {
-                DownloadImageTask(showData?.imageUrl, showData?.id).execute()
+                downloadImage(showData?.imageUrl, showData?.id)
             } else {
                 imageView?.setImageBitmap(null)
             }
         } else {
-            FetchDataFromApiLocalTask(qwerty).execute()
+            getResponse(qwerty)
         }
     }
 
 
-    @SuppressLint("StaticFieldLeak")
-    inner class FetchDataFromApiLocalTask(private val qString: String?) :
-            AsyncTask<String, String, String>() {
-        override fun doInBackground(vararg p0: String?): String? {
-            val url = URL("http://api.tvmaze.com/singlesearch/shows?q=$qString")
+    fun getResponse(qString: String) {
+        Observable.fromCallable {
+            val url = URL("http://api.tvmaze.com/singlesearch/shows?q=" + qString)
             val httpURLConnection = url.openConnection() as HttpURLConnection
             var response: String? = null
             try {
@@ -125,47 +124,44 @@ class MainActivity : AppCompatActivity() {
                     response = httpURLConnection.inputStream.bufferedReader().readText()
                 }
             } catch (ex: Exception) {
-                ex.stackTrace
+                ex.printStackTrace()
             }
-            return response
+            return@fromCallable response
         }
-
-        override fun onPostExecute(result: String?) {
+        .subscribeOn(Schedulers.io())
+        .observeOn(AndroidSchedulers.mainThread())
+        .subscribe({ result ->
             progressBar?.visibility = View.GONE
-            println(result)
             if (result != null) {
                 showData = ShowData()
                 showData?.parseJson(result)
                 showData?.keyWord = qString
                 databaseHelper?.addToDB(showData!!, result)
                 setValueToUi(showData!!)
-                DownloadImageTask(showData?.imageUrl, showData?.id).execute()
+                downloadImage(showData?.imageUrl, showData?.id)
                 infoLayout?.visibility = View.VISIBLE
             } else {
                 imageView?.setImageBitmap(null)
                 val alertDialog = AlertDialog.Builder(this@MainActivity).create()
-                alertDialog.setButton(DialogInterface.BUTTON_POSITIVE, "Ok") { dialog: DialogInterface, _: Int -> dialog.cancel() }
-                alertDialog.setMessage("Unable To Find TV Show")
+                alertDialog.setButton(DialogInterface.BUTTON_POSITIVE, "Ok") { dialog: DialogInterface, which: Int -> dialog.cancel() }
+                alertDialog.setMessage("Unable to fetch details")
                 alertDialog.show()
             }
-        }
-
-        override fun onPreExecute() {
-            progressBar?.visibility = View.VISIBLE
-            infoLayout?.visibility = View.GONE
-            //imageView?.visibility = View.GONE
-        }
-
+        }, { error ->
+            val alertDialog = AlertDialog.Builder(this@MainActivity).create()
+            alertDialog.setButton(DialogInterface.BUTTON_POSITIVE, "Ok") { dialog: DialogInterface, which: Int -> dialog.cancel() }
+            alertDialog.setMessage("Unable to fetch details")
+            alertDialog.show()
+        })
     }
 
 
-    @SuppressLint("StaticFieldLeak")
-    inner class DownloadImageTask(private val imageUrl: String?, private val id: String?) :
-            AsyncTask<String, String, Bitmap>() {
-        override fun doInBackground(vararg p0: String?): Bitmap? {
-            val bitmapFromStorage = getImageFromStorage("$id.PNG")
+    fun downloadImage(imageUrl: String?, id: String?) {
+        imageView?.setImageBitmap(null)
+        Observable.fromCallable {
+            val bitmapFromStorage = getImageFromStorage(id + ".PNG")
             if (bitmapFromStorage != null) {
-                return bitmapFromStorage
+                return@fromCallable bitmapFromStorage
             }
             try {
                 val url = URL(imageUrl)
@@ -175,23 +171,19 @@ class MainActivity : AppCompatActivity() {
                 if (responseCode == 200) {
                     val bitmap = BitmapFactory.decodeStream(httpURLConnection.inputStream)
                     saveToInternalStorage(bitmap, id)
-                    return bitmap
+                    return@fromCallable bitmap
                 }
             } catch (ex: Exception) {
                 println("Image download Exception $ex")
             }
-            return null
+            return@fromCallable null
         }
-
-        override fun onPostExecute(result: Bitmap?) {
+        .subscribeOn(Schedulers.io())
+        .observeOn(AndroidSchedulers.mainThread())
+        .subscribe {
             imageView?.visibility = View.VISIBLE
-            imageView?.setImageBitmap(result)
+            imageView?.setImageBitmap(it)
         }
-
-        override fun onPreExecute() {
-            imageView?.setImageBitmap(null)
-        }
-
     }
 
     fun saveToInternalStorage(bitmapImage: Bitmap, id: String?) {
